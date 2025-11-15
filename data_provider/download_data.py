@@ -17,11 +17,8 @@ from alpaca.data.timeframe import TimeFrame
 from dotenv import load_dotenv
 from feature_engineering import BASE_PRICE_COLUMNS
 
-# Load environment variables from .env file in project root
-# Get the project root (parent of data_provider directory)
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-env_path = os.path.join(project_root, '.env')
-load_dotenv(dotenv_path=env_path)
+# Load environment variables from .env file
+load_dotenv()
 
 DEFAULT_SYMBOLS: tuple[str, ...] = ("GLD", "SLV", "SIL", "GDX")
 
