@@ -25,6 +25,7 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+
 MANIFEST
 
 # PyInstaller
@@ -168,4 +169,10 @@ run_anylearn.py
 environment.txt
 
 #vs code
+
+.DS_Store
 .vscode/
+
+#lean
+lean/backtests/
+*.zip
