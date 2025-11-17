@@ -14,7 +14,8 @@ def convert_gld_to_lean():
     
     # Paths
     source_file = Path(__file__).parent.parent / "dataset" / "trading" / "GLD.csv"
-    lean_data_dir = Path(__file__).parent / "Data" / "equity" / "usa" / "minute" / "gld"
+    # Use custom data directory instead of equity directory
+    lean_data_dir = Path(__file__).parent / "Data" / "custom" / "gld"
     
     # Create directory
     lean_data_dir.mkdir(parents=True, exist_ok=True)
@@ -44,30 +45,24 @@ def convert_gld_to_lean():
     # Group by date for LEAN's file structure (one zip file per day)
     lean_df['date'] = lean_df['time'].dt.date
     
-    # Save files by date as zip files
-    zip_count = 0
+    # Save files by date as CSV files (simpler for custom data)
+    csv_count = 0
     for date, group in lean_df.groupby('date'):
         date_str = date.strftime('%Y%m%d')
-        zip_file = lean_data_dir / f"{date_str}_trade.zip"
+        csv_file = lean_data_dir / f"{date_str}.csv"
         
         # Prepare data for LEAN format: yyyyMMdd HHmmss,open,high,low,close,volume
         group_to_save = group[['time', 'open', 'high', 'low', 'close', 'volume']].copy()
         group_to_save['time'] = group_to_save['time'].dt.strftime('%Y%m%d %H%M%S')
         
-        # Create CSV content in memory
-        csv_buffer = io.StringIO()
-        group_to_save.to_csv(csv_buffer, index=False, header=False, sep=',')
-        csv_content = csv_buffer.getvalue()
+        # Save as CSV without header
+        group_to_save.to_csv(csv_file, index=False, header=False, sep=',')
         
-        # Create zip file with the CSV content
-        with zipfile.ZipFile(zip_file, 'w', zipfile.ZIP_DEFLATED) as zf:
-            zf.writestr(f"{date_str}_trade.csv", csv_content)
-        
-        zip_count += 1
+        csv_count += 1
     
-    print(f"Converted {len(lean_df)} rows to {zip_count} zip files in {lean_data_dir}")
-    print(f"First file: {lean_data_dir / lean_df['date'].min().strftime('%Y%m%d')}_trade.zip")
-    print(f"Last file: {lean_data_dir / lean_df['date'].max().strftime('%Y%m%d')}_trade.zip")
+    print(f"Converted {len(lean_df)} rows to {csv_count} CSV files in {lean_data_dir}")
+    print(f"First file: {lean_data_dir / lean_df['date'].min().strftime('%Y%m%d')}.csv")
+    print(f"Last file: {lean_data_dir / lean_df['date'].max().strftime('%Y%m%d')}.csv")
 
 if __name__ == "__main__":
     convert_gld_to_lean()
