@@ -176,6 +176,7 @@ def train_transformer(
         "--learning_rate", str(learning_rate),
         "--patience", "5",  # Early stopping patience
         "--freq", "t",      # 't' for minutely data
+        "--num_workers", "0",  # Set to 0 for macOS compatibility (avoids shared memory issues)
     ]
     
     # Detect GPU type and configure accordingly
