@@ -11,8 +11,8 @@ from datetime import datetime, timedelta
 from typing import Dict
 
 import pandas as pd
-from alpaca.data.historical import StockHistoricalDataClient
-from alpaca.data.requests import StockBarsRequest
+from alpaca.data.historical import CryptoHistoricalDataClient
+from alpaca.data.requests import CryptoBarsRequest
 from alpaca.data.timeframe import TimeFrame
 from dotenv import load_dotenv
 from feature_engineering import BASE_PRICE_COLUMNS
@@ -20,13 +20,13 @@ from feature_engineering import BASE_PRICE_COLUMNS
 # Load environment variables from .env file
 load_dotenv()
 
-DEFAULT_SYMBOLS: tuple[str, ...] = ("GLD", "SLV", "SIL", "GDX")
+DEFAULT_SYMBOLS: tuple[str, ...] = ("LTC/USD", "BTC/USD", "ETH/USD", )
 
 
 def download_symbol_data(
-    client: StockHistoricalDataClient,
+    client: CryptoHistoricalDataClient,
     symbol: str,
-    years: int = 10,
+    years: int = 4,
     chunk_days: int = 30,
 ) -> pd.DataFrame:
     """
@@ -50,12 +50,15 @@ def download_symbol_data(
     all_rows = []
     current_start = start_date
     chunk_num = 1
+    empty_chunks = []
+    total_chunks = 0
 
     while current_start < end_date:
         current_end = min(current_start + timedelta(days=chunk_days), end_date)
+        total_chunks += 1
         print(f"  Chunk {chunk_num}: {current_start.date()} -> {current_end.date()}")
 
-        request_params = StockBarsRequest(
+        request_params = CryptoBarsRequest(
             symbol_or_symbols=[symbol],
             timeframe=TimeFrame.Minute,
             start=current_start,
@@ -63,11 +66,12 @@ def download_symbol_data(
         )
 
         try:
-            bars = client.get_stock_bars(request_params)
+            bars = client.get_crypto_bars(request_params)
             symbol_bars = bars.data.get(symbol, [])
 
             if not symbol_bars:
                 print("    No data returned for this chunk.")
+                empty_chunks.append((current_start.date(), current_end.date()))
             else:
                 for bar in symbol_bars:
                     all_rows.append(
@@ -84,6 +88,7 @@ def download_symbol_data(
         except Exception as exc:  # pylint: disable=broad-except
             print(f"    Error downloading chunk: {exc}")
             print("    Skipping to next chunk...")
+            empty_chunks.append((current_start.date(), current_end.date()))
 
         time.sleep(0.5)
         current_start = current_end
@@ -97,6 +102,20 @@ def download_symbol_data(
 
     df = pd.DataFrame(all_rows).set_index("timestamp").sort_index()
     print(f"  Total rows downloaded for {symbol}: {len(df)}")
+    
+    # Report data gaps
+    if empty_chunks:
+        gap_percentage = (len(empty_chunks) / total_chunks) * 100
+        print(f"  ⚠️  Warning: {len(empty_chunks)} out of {total_chunks} chunks had no data ({gap_percentage:.1f}%)")
+        if len(empty_chunks) <= 5:
+            print(f"  Missing chunks: {empty_chunks}")
+        else:
+            print(f"  First missing chunk: {empty_chunks[0]}")
+            print(f"  Last missing chunk: {empty_chunks[-1]}")
+            print(f"  (Total {len(empty_chunks)} missing chunks)")
+        if gap_percentage > 20:
+            print(f"  ⚠️  Large data gap detected! Consider using a different symbol or data source.")
+    
     return df
 
 
@@ -104,7 +123,7 @@ def download_multi_asset_data(
     api_key: str,
     api_secret: str,
     symbols: Iterable[str] = DEFAULT_SYMBOLS,
-    years: int = 10,
+    years: int = 4,
     chunk_days: int = 30,
 ) -> Dict[str, pd.DataFrame]:
     """
@@ -120,13 +139,20 @@ def download_multi_asset_data(
     Returns:
         Mapping of symbol -> DataFrame of historical data.
     """
-    client = StockHistoricalDataClient(api_key=api_key, secret_key=api_secret)
+    client = CryptoHistoricalDataClient(api_key=api_key, secret_key=api_secret)
     datasets: Dict[str, pd.DataFrame] = {}
 
     for symbol in symbols:
         datasets[symbol] = download_symbol_data(client, symbol, years=years, chunk_days=chunk_days)
 
     return datasets
+
+
+def _symbol_to_filename(symbol: str) -> str:
+    """
+    Convert API symbol format (e.g., 'BTC/USD') to filename-safe format (e.g., 'BTCUSD').
+    """
+    return symbol.replace("/", "")
 
 
 def save_dataframes(data: Dict[str, pd.DataFrame], output_dir: str) -> Dict[str, str]:
@@ -168,7 +194,9 @@ def save_dataframes(data: Dict[str, pd.DataFrame], output_dir: str) -> Dict[str,
         else:
             df_save = df_save[['date'] + cols]
         
-        file_path = os.path.join(output_dir, f"{symbol}.csv")
+        # Convert symbol format for filename (BTC/USD -> BTCUSD)
+        filename_symbol = _symbol_to_filename(symbol)
+        file_path = os.path.join(output_dir, f"{filename_symbol}.csv")
         df_save.to_csv(file_path, index=False)
         saved_paths[symbol] = os.path.abspath(file_path)
         print(f"Saved {symbol} data to {file_path}")
@@ -190,7 +218,7 @@ if __name__ == "__main__":
         api_key=api_key,
         api_secret=api_secret,
         symbols=DEFAULT_SYMBOLS,
-        years=10,
+        years=4,
         chunk_days=30,
     )
 

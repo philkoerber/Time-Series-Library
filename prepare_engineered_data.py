@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
 Prepare engineered multi-asset features for training.
-Combines features from multiple symbols using feature_engineering.py
+Combines features from multiple crypto symbols using feature_engineering.py
 """
 import os
 import pandas as pd
 from data_provider.feature_engineering import engineer_features_from_symbol_data
 
 def prepare_training_data(
-    symbols: list[str] = ["GLD", "SLV", "SIL", "GDX"],
-    target_symbol: str = "GLD",
+    symbols: list[str] = ["BTCUSD", "ETHUSD", "LTCUSD"],
+    target_symbol: str = "BTCUSD",
     data_dir: str = "dataset/trading",
     output_path: str = "dataset/trading/engineered_features.csv",
 ):
@@ -17,7 +17,7 @@ def prepare_training_data(
     Load OHLCV data, engineer features, and save for training.
     
     Args:
-        symbols: List of symbols to include
+        symbols: List of symbols to include (use filename format, e.g., "BTCUSD" not "BTC/USD")
         target_symbol: Symbol to predict (future log return)
         data_dir: Directory containing CSV files
         output_path: Where to save engineered features
@@ -31,6 +31,7 @@ def prepare_training_data(
         if not os.path.exists(csv_path):
             raise FileNotFoundError(f"Data file not found: {csv_path}")
         
+        print(f"  Loading {symbol}...")
         df = pd.read_csv(csv_path)
         df['date'] = pd.to_datetime(df['date'])
         df = df.set_index('date').sort_index()
@@ -74,6 +75,7 @@ def prepare_training_data(
     print(f"  Shape: {training_df.shape}")
     print(f"  Features: {len(cols)}")
     print(f"  Date range: {training_df['date'].min()} to {training_df['date'].max()}")
+    print(f"  Sample features: {list(cols[:10])}...")
     
     return training_df
 
@@ -82,9 +84,9 @@ if __name__ == "__main__":
     import argparse
     
     parser = argparse.ArgumentParser(description="Prepare engineered features for training")
-    parser.add_argument("--symbols", nargs="+", default=["GLD", "SLV", "SIL", "GDX"],
-                       help="Symbols to include")
-    parser.add_argument("--target", type=str, default="GLD",
+    parser.add_argument("--symbols", nargs="+", default=["BTCUSD", "ETHUSD", "LTCUSD"],
+                       help="Symbols to include (use filename format, e.g., BTCUSD)")
+    parser.add_argument("--target", type=str, default="BTCUSD",
                        help="Target symbol to predict")
     parser.add_argument("--output", type=str, default="dataset/trading/engineered_features.csv",
                        help="Output CSV path")

@@ -67,6 +67,11 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 true = batch_y.detach()
 
                 loss = criterion(pred, true)
+                
+                # Check for NaN/Inf loss in validation
+                if torch.isnan(loss) or torch.isinf(loss):
+                    print(f"Warning: NaN/Inf loss in validation at batch {i}")
+                    continue
 
                 total_loss.append(loss.item())
         total_loss = np.average(total_loss)
@@ -119,7 +124,24 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                         f_dim = -1 if self.args.features == 'MS' else 0
                         outputs = outputs[:, -self.args.pred_len:, f_dim:]
                         batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                        
+                        # Check for NaN/Inf in model outputs before computing loss
+                        if torch.isnan(outputs).any() or torch.isinf(outputs).any():
+                            print(f"\nWarning: NaN/Inf in model outputs at iter {i+1}, epoch {epoch+1}. Skipping this batch.")
+                            model_optim.zero_grad()
+                            continue
+                        
+                        # Clamp outputs to reasonable range
+                        outputs = torch.clamp(outputs, min=-1e6, max=1e6)
+                        
                         loss = criterion(outputs, batch_y)
+                        
+                        # Check for NaN/Inf loss
+                        if torch.isnan(loss) or torch.isinf(loss):
+                            print(f"\nWarning: NaN/Inf loss at iter {i+1}, epoch {epoch+1}. Skipping this batch.")
+                            model_optim.zero_grad()
+                            continue
+                        
                         train_loss.append(loss.item())
                 else:
                     outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
@@ -127,7 +149,24 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     f_dim = -1 if self.args.features == 'MS' else 0
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
+                    
+                    # Check for NaN/Inf in model outputs before computing loss
+                    if torch.isnan(outputs).any() or torch.isinf(outputs).any():
+                        print(f"\nWarning: NaN/Inf in model outputs at iter {i+1}, epoch {epoch+1}. Skipping this batch.")
+                        model_optim.zero_grad()
+                        continue
+                    
+                    # Clamp outputs to reasonable range to prevent extreme loss values
+                    outputs = torch.clamp(outputs, min=-1e6, max=1e6)
+                    
                     loss = criterion(outputs, batch_y)
+                    
+                    # Check for NaN/Inf loss before appending
+                    if torch.isnan(loss) or torch.isinf(loss):
+                        print(f"\nWarning: NaN/Inf loss at iter {i+1}, epoch {epoch+1}. Skipping this batch.")
+                        model_optim.zero_grad()
+                        continue
+                    
                     train_loss.append(loss.item())
 
                 if (i + 1) % 100 == 0:
@@ -138,12 +177,26 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     iter_count = 0
                     time_now = time.time()
 
+                # Check for NaN/Inf loss before backpropagation
+                if torch.isnan(loss) or torch.isinf(loss):
+                    print(f"\nWarning: NaN/Inf loss detected at iter {i+1}, epoch {epoch+1}. Skipping this batch.")
+                    model_optim.zero_grad()
+                    continue
+                
+                # Clip loss value to prevent extreme gradients
+                loss = torch.clamp(loss, min=1e-8, max=1e6)
+                
                 if self.args.use_amp:
                     scaler.scale(loss).backward()
+                    # Clip gradients to prevent explosion
+                    scaler.unscale_(model_optim)
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     scaler.step(model_optim)
                     scaler.update()
                 else:
                     loss.backward()
+                    # Clip gradients to prevent explosion
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
                     model_optim.step()
 
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
