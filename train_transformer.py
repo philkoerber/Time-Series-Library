@@ -48,7 +48,7 @@ def _get_training_config(use_gpu=True):
     elif gpu_type == 'mps':
         # Faster parameters for Mac (MPS)
         return {
-            'epochs': 10,
+            'epochs': 2, #only for testing
             'batch_size': 16,
             'learning_rate': 0.0001,
             'd_model': 64,
