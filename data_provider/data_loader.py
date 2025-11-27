@@ -7,6 +7,78 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
 from utils.timefeatures import time_features
+
+
+class RobustStandardScaler:
+    """
+    Wrapper around StandardScaler that handles NaN/Inf and zero-variance features.
+    Ensures numerical stability for financial/engineered features.
+    """
+    def __init__(self):
+        self.scaler = StandardScaler()
+        self.mean_ = None
+        self.scale_ = None
+        self.epsilon_ = 1e-8  # Minimum variance threshold
+        
+    def fit(self, X):
+        """
+        Fit the scaler with robust preprocessing.
+        X: array-like of shape (n_samples, n_features)
+        """
+        X = np.asarray(X).copy()
+        
+        # Replace NaN/Inf with 0 before fitting
+        X = np.nan_to_num(X, nan=0.0, posinf=1e6, neginf=-1e6)
+        
+        # Compute mean and std
+        self.mean_ = np.mean(X, axis=0, keepdims=True)
+        std = np.std(X, axis=0, keepdims=True)
+        
+        # Check for zero-variance features and set minimum std
+        zero_var_mask = std.flatten() < self.epsilon_
+        if zero_var_mask.any():
+            print(f"Warning: Found {zero_var_mask.sum()} features with near-zero variance. Setting std to 1.0.")
+            std[0, zero_var_mask] = 1.0
+        
+        self.scale_ = std
+        
+        # Fit standard scaler (will use our custom mean/scale internally via transform)
+        # But we'll manually compute and store mean/scale
+        return self
+    
+    def transform(self, X):
+        """
+        Transform data with robust preprocessing.
+        """
+        X = np.asarray(X).copy()
+        
+        # Replace NaN/Inf
+        X = np.nan_to_num(X, nan=0.0, posinf=1e6, neginf=-1e6)
+        
+        # Manual normalization using our stored mean and scale
+        if self.mean_ is None or self.scale_ is None:
+            raise ValueError("Scaler has not been fitted yet. Call fit() first.")
+        
+        X_scaled = (X - self.mean_) / self.scale_
+        
+        # Final clipping to prevent extreme values (important for numerical stability)
+        X_scaled = np.clip(X_scaled, -10.0, 10.0)
+        
+        return X_scaled
+    
+    def fit_transform(self, X):
+        """Fit and transform in one step."""
+        return self.fit(X).transform(X)
+    
+    def inverse_transform(self, X):
+        """Inverse transform for inverse normalization."""
+        if self.mean_ is None or self.scale_ is None:
+            raise ValueError("Scaler has not been fitted yet. Call fit() first.")
+        
+        X = np.asarray(X).copy()
+        return X * self.scale_ + self.mean_
+
+
 from data_provider.m4 import M4Dataset, M4Meta
 from data_provider.uea import subsample, interpolate_missing, Normalizer
 from sktime.datasets import load_from_tsfile_to_dataframe
@@ -251,7 +323,8 @@ class Dataset_Custom(Dataset):
         self.__read_data__()
 
     def __read_data__(self):
-        self.scaler = StandardScaler()
+        # Will use RobustStandardScaler if scale=True
+        self.scaler = None
         local_fp = os.path.join(self.root_path, self.data_path)
         cfg_name = os.path.splitext(os.path.basename(self.data_path))[0]
 
@@ -283,12 +356,21 @@ class Dataset_Custom(Dataset):
         elif self.features == 'S':
             df_data = df_raw[[self.target]]
 
+        # Robust preprocessing to prevent NaN/Inf issues
         if self.scale:
+            # Use robust scaler that handles NaN/Inf and zero-variance features
+            self.scaler = RobustStandardScaler()
             train_data = df_data[border1s[0]:border2s[0]]
+            
+            # Fit on training data only
             self.scaler.fit(train_data.values)
+            
+            # Transform all data (validation and test will use training stats)
             data = self.scaler.transform(df_data.values)
         else:
-            data = df_data.values
+            # Even without scaling, handle NaN/Inf to prevent issues
+            data = df_data.values.copy()
+            data = np.nan_to_num(data, nan=0.0, posinf=1e6, neginf=-1e6)
 
         df_stamp = df_raw[['date']][border1:border2]
         df_stamp['date'] = pd.to_datetime(df_stamp.date)

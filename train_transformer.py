@@ -28,7 +28,7 @@ def _get_training_config(use_gpu=True):
     Returns different parameters for Mac (MPS) vs CUDA VM.
     
     Returns:
-        dict: Configuration with epochs, batch_size, learning_rate, d_model, d_ff, n_heads, e_layers, d_layers
+        dict: Configuration with epochs, batch_size, learning_rate, d_model, d_ff, n_heads, e_layers, d_layers, num_workers
     """
     gpu_type = _detect_gpu_type() if use_gpu else None
     
@@ -43,11 +43,12 @@ def _get_training_config(use_gpu=True):
             'n_heads': 16,
             'e_layers': 4,
             'd_layers': 2,
+            'num_workers': 8,  # Use multiple workers on CUDA (shared memory works well)
         }
     elif gpu_type == 'mps':
         # Faster parameters for Mac (MPS)
         return {
-            'epochs': 10,
+            'epochs': 2, #only for testing
             'batch_size': 16,
             'learning_rate': 0.0001,
             'd_model': 64,
@@ -55,6 +56,7 @@ def _get_training_config(use_gpu=True):
             'n_heads': 8,
             'e_layers': 2,
             'd_layers': 1,
+            'num_workers': 0,  # Use 0 on Mac to avoid shared memory timeout issues
         }
     else:
         # CPU fallback - use lighter parameters
@@ -67,6 +69,7 @@ def _get_training_config(use_gpu=True):
             'n_heads': 4,
             'e_layers': 1,
             'd_layers': 1,
+            'num_workers': 0,  # Use 0 on CPU to avoid multiprocessing overhead
         }
 
 def train_transformer(
@@ -83,6 +86,7 @@ def train_transformer(
     n_heads=None,  # Auto-detect based on environment if None
     e_layers=None,  # Auto-detect based on environment if None
     d_layers=None,  # Auto-detect based on environment if None
+    num_workers=None,  # Auto-detect based on environment if None (0 for Mac, 8 for CUDA)
 ):
     """
     Train a transformer model on trading data.
@@ -101,6 +105,7 @@ def train_transformer(
         n_heads: Number of attention heads (None = auto-detect based on environment)
         e_layers: Encoder layers (None = auto-detect based on environment)
         d_layers: Decoder layers (None = auto-detect based on environment)
+        num_workers: DataLoader workers (None = auto-detect: 0 for Mac/MPS to avoid shared memory issues, 8 for CUDA)
     """
     # Get environment-based configuration
     config = _get_training_config(use_gpu)
@@ -114,6 +119,7 @@ def train_transformer(
     n_heads = n_heads if n_heads is not None else config['n_heads']
     e_layers = e_layers if e_layers is not None else config['e_layers']
     d_layers = d_layers if d_layers is not None else config['d_layers']
+    num_workers = num_workers if num_workers is not None else config['num_workers']
     
     # Detect GPU type for logging
     gpu_type = _detect_gpu_type() if use_gpu else None
@@ -174,6 +180,7 @@ def train_transformer(
         "--train_epochs", str(epochs),
         "--batch_size", str(batch_size),
         "--learning_rate", str(learning_rate),
+        "--num_workers", str(num_workers),  # Set based on environment (0 for Mac, 8 for CUDA)
         "--patience", "5",  # Early stopping patience
         "--freq", "t",      # 't' for minutely data
         "--num_workers", "0",  # Set to 0 for macOS compatibility (avoids shared memory issues)
@@ -208,6 +215,7 @@ def train_transformer(
     print(f"  Attention heads: {n_heads}")
     print(f"  Encoder layers: {e_layers}")
     print(f"  Decoder layers: {d_layers}")
+    print(f"  DataLoader workers: {num_workers} ({'disabled (Mac)' if num_workers == 0 else 'enabled (CUDA)'})")
     print(f"{'='*60}\n")
     
     # Run training
@@ -252,6 +260,8 @@ if __name__ == "__main__":
                        help="Encoder layers (default: auto-detect based on environment - 2 for Mac, 4 for CUDA)")
     parser.add_argument("--d_layers", type=int, default=None,
                        help="Decoder layers (default: auto-detect based on environment - 1 for Mac, 2 for CUDA)")
+    parser.add_argument("--num_workers", type=int, default=None,
+                       help="DataLoader workers (default: auto-detect - 0 for Mac to avoid shared memory issues, 8 for CUDA)")
     parser.add_argument("--no_gpu", action="store_true",
                        help="Disable GPU")
     
@@ -271,5 +281,6 @@ if __name__ == "__main__":
         n_heads=args.n_heads,
         e_layers=args.e_layers,
         d_layers=args.d_layers,
+        num_workers=args.num_workers,
     )
 
